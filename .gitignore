@@ -1,0 +1,36 @@
+# Compiled binary
+nego
+
+# Go build artifacts
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+
+# Test binary and coverage
+*.test
+*.out
+coverage.txt
+
+# Go workspace
+go.work
+go.work.sum
+
+# IDE / Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Dependency directories (if vendored)
+vendor/
+
+# Debug binaries
+__debug_bin*
+
+# Environment files
+.env
+.env.local
