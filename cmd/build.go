@@ -63,20 +63,30 @@ func runBuild(flags BuildFlags) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	done := make(chan struct{})
+	defer close(done)
+
 	go func() {
-		<-ctx.Done()
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+		}
 		logger.Step("Shutting down...")
-		
-		// If second Ctrl+C, exit immediately
+
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-		<-sigCh
-		os.Exit(1)
+		defer signal.Stop(sigCh)
+
+		select {
+		case <-done:
+		case <-sigCh:
+			os.Exit(1)
+		}
 	}()
 
 	if flags.Watch {
 		return o.Watch(ctx, flags.WatchAssets)
 	}
-
 	return o.Build(ctx, false)
 }

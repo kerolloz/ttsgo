@@ -39,18 +39,15 @@ This command is a drop-in replacement for 'nest start' (tsc builder only).`,
 		},
 	}
 
-	// Flags
 	cmd.Flags().StringVarP(&flags.ConfigPath, "config", "c", "", "Path to nest-cli.json")
 	cmd.Flags().StringVarP(&flags.TsConfigPath, "path", "p", "", "Path to tsconfig file")
 	cmd.Flags().BoolVarP(&flags.Watch, "watch", "w", false, "Watch mode (live-reload)")
 	cmd.Flags().BoolVar(&flags.WatchAssets, "watchAssets", false, "Watch non-TypeScript asset files")
-
 	cmd.Flags().StringVarP(&flags.Debug, "debug", "d", "", "Run with --inspect[=host:port]")
 	cmd.Flags().Lookup("debug").NoOptDefVal = "true"
 	cmd.Flags().StringVarP(&flags.Exec, "exec", "e", "", "Binary to run (default: node)")
 	cmd.Flags().StringVar(&flags.EntryFile, "entryFile", "", "Entry file name (overrides config)")
 	cmd.Flags().StringVar(&flags.SourceRoot, "sourceRoot", "", "Source root (overrides config)")
-	// Fix: use a single flag for shell control to avoid conflict
 	cmd.Flags().BoolVar(&flags.NoShell, "no-shell", false, "Do not spawn child process within a shell")
 	cmd.Flags().StringArrayVar(&flags.EnvFiles, "env-file", nil, "Path to an .env file (repeatable)")
 
@@ -69,7 +66,7 @@ func runStart(flags StartFlags) error {
 		Binary:     flags.Exec,
 		Debug:      flags.Debug,
 		EnvFiles:   flags.EnvFiles,
-		Shell:      !flags.NoShell, // Shell is default true unless --no-shell
+		Shell:      !flags.NoShell,
 		ExtraArgs:  extraArgsFromCLI(),
 	}
 
@@ -88,16 +85,27 @@ func runStart(flags StartFlags) error {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	done := make(chan struct{})
+	defer close(done)
+
 	go func() {
-		<-ctx.Done()
+		select {
+		case <-done:
+			return
+		case <-ctx.Done():
+		}
 		logger.Step("Shutting down...")
 		o.KillRunner()
-		
-		// If second Ctrl+C, exit immediately
+
 		sigCh := make(chan os.Signal, 1)
 		signal.Notify(sigCh, os.Interrupt, syscall.SIGTERM)
-		<-sigCh
-		os.Exit(1)
+		defer signal.Stop(sigCh)
+
+		select {
+		case <-done:
+		case <-sigCh:
+			os.Exit(1)
+		}
 	}()
 
 	if flags.Watch {
@@ -108,12 +116,9 @@ func runStart(flags StartFlags) error {
 		return err
 	}
 
-	// In non-watch mode, wait for the child process to exit.
-	code := o.WaitRunner()
-	if code != 0 {
+	if code := o.WaitRunner(); code != 0 {
 		os.Exit(code)
 	}
-
 	return nil
 }
 

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"nego/internal/assets"
@@ -106,6 +107,9 @@ func New(opts Options) (*Orchestrator, error) {
 		if opts.RunnerOpts.SourceRoot == "" {
 			opts.RunnerOpts.SourceRoot = nestCfg.SourceRoot
 		}
+		if opts.RunnerOpts.RootDir == "" {
+			opts.RunnerOpts.RootDir = tsCfg.RootDir
+		}
 		if opts.RunnerOpts.Binary == "" {
 			opts.RunnerOpts.Binary = nestCfg.Exec
 		}
@@ -144,6 +148,9 @@ func (o *Orchestrator) Build(ctx context.Context, isRebuild bool) error {
 
 	if o.NestConfig.CompilerOptions.DeleteOutDir {
 		absOut := filepath.Join(o.Cwd, o.TsConfig.OutDir)
+		if !strings.HasPrefix(absOut+string(filepath.Separator), o.Cwd+string(filepath.Separator)) {
+			return fmt.Errorf("outDir %q escapes project root, refusing to delete", o.TsConfig.OutDir)
+		}
 		if err := os.RemoveAll(absOut); err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("failed to delete outDir: %w", err)
 		}
@@ -224,6 +231,12 @@ func (o *Orchestrator) Watch(ctx context.Context, watchAssets bool) error {
 				logger.Error("Build failed: %v", err)
 			} else {
 				logger.Success("Rebuild complete")
+			}
+			// Drain any events that arrived during the build to prevent
+			// a spurious immediate re-trigger from editor multi-write events.
+			select {
+			case <-rebuildCh:
+			default:
 			}
 		}
 	}

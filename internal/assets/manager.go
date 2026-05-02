@@ -248,7 +248,12 @@ func copyFile(src, sourceRoot, outDir string) error {
 	}
 	defer in.Close()
 
-	out, err := os.Create(dst)
+	srcInfo, err := in.Stat()
+	if err != nil {
+		return err
+	}
+
+	out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, srcInfo.Mode())
 	if err != nil {
 		return err
 	}
@@ -257,8 +262,7 @@ func copyFile(src, sourceRoot, outDir string) error {
 		out.Close()
 		return err
 	}
-	
-	// Ensure file is flushed to disk and errors are caught
+
 	return out.Close()
 }
 

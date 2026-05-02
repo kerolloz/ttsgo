@@ -1,4 +1,3 @@
-// Package process manages the Node.js child process lifecycle for `nego start`.
 package process
 
 import (
@@ -19,31 +18,43 @@ type ProcessRunner interface {
 
 // Options configures the Node.js child process.
 type Options struct {
-	// EntryFile is the name of the entry file without extension (e.g. "main").
-	EntryFile string
-	// SourceRoot is the source root as used in the output path (e.g. "src").
+	EntryFile  string
 	SourceRoot string
-	// OutDir is the compiled output directory (e.g. "dist").
-	OutDir string
-	// Binary is the executable to run (default "node").
-	Binary string
-	// Debug enables --inspect mode.
-	Debug string
-	// EnvFiles are paths to .env files to pass via --env-file=.
-	EnvFiles []string
-	// ExtraArgs are args passed after -- on the command line.
-	ExtraArgs []string
-	// Shell spawns the process inside a shell.
-	Shell bool
-	// Cwd is the working directory.
-	Cwd string
+	RootDir    string
+	OutDir     string
+	Binary     string
+	Debug      string
+	EnvFiles   []string
+	ExtraArgs  []string
+	Shell      bool
+	Cwd        string
+}
+
+// procState holds the lifecycle of a single child process invocation.
+// waitOnce ensures cmd.Wait() is called exactly once regardless of
+// whether Kill or Wait reaches it first.
+type procState struct {
+	cmd      *exec.Cmd
+	waitOnce sync.Once
+	waitCode int
+	done     chan struct{}
+}
+
+func (s *procState) wait() {
+	s.waitOnce.Do(func() {
+		err := s.cmd.Wait()
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			s.waitCode = exitErr.ExitCode()
+		}
+		close(s.done)
+	})
 }
 
 // Runner manages a single Node.js child process and supports hot-reload.
 type Runner struct {
-	opts    Options
-	mu      sync.Mutex
-	current *exec.Cmd
+	opts  Options
+	mu    sync.Mutex
+	state *procState
 }
 
 // New creates a Runner with the given options.
@@ -63,61 +74,57 @@ func (r *Runner) Start() error {
 	if err != nil {
 		return err
 	}
-	
-	r.mu.Lock()
-	r.current = cmd
-	r.mu.Unlock()
-	
-	return cmd.Start()
-}
 
-// Wait blocks until the child process exits and returns its exit code.
-func (r *Runner) Wait() int {
 	r.mu.Lock()
-	cmd := r.current
-	r.mu.Unlock()
+	defer r.mu.Unlock()
 
-	if cmd == nil {
-		return 0
+	if err := cmd.Start(); err != nil {
+		return err
 	}
-	err := cmd.Wait()
-	if err == nil {
-		return 0
-	}
-	if exitErr, ok := err.(*exec.ExitError); ok {
-		return exitErr.ExitCode()
-	}
-	return 1
+	r.state = &procState{cmd: cmd, done: make(chan struct{})}
+	return nil
 }
 
 // Kill terminates the process tree and waits for it to fully exit.
 func (r *Runner) Kill() {
 	r.mu.Lock()
-	cmd := r.current
+	state := r.state
+	r.state = nil
 	r.mu.Unlock()
 
-	if cmd != nil && cmd.Process != nil {
-		killTree(cmd.Process.Pid)
-		_ = cmd.Wait() // Reap the main process
-		
-		r.mu.Lock()
-		r.current = nil
-		r.mu.Unlock()
+	if state == nil || state.cmd.Process == nil {
+		return
 	}
+	killTree(state.cmd.Process.Pid)
+	state.wait()
 }
 
-// build constructs the exec.Cmd for the node process.
+// Wait blocks until the child process exits and returns its exit code.
+func (r *Runner) Wait() int {
+	r.mu.Lock()
+	state := r.state
+	r.mu.Unlock()
+
+	if state == nil {
+		return 0
+	}
+	state.wait()
+	<-state.done
+	return state.waitCode
+}
+
 func (r *Runner) build() (*exec.Cmd, error) {
 	outputFile := r.resolveOutputFile()
 	if outputFile == "" {
 		return nil, fmt.Errorf(
-			"could not find entry file. Looked for %s/%s/%s.js and %s/%s.js",
+			"could not find entry file. Looked for %s/%s/%s.js, %s/%s/%s.js, and %s/%s.js",
 			r.opts.OutDir, r.opts.SourceRoot, r.opts.EntryFile,
+			r.opts.OutDir, r.opts.RootDir, r.opts.EntryFile,
 			r.opts.OutDir, r.opts.EntryFile,
 		)
 	}
 
-	nodeArgs := []string{}
+	var nodeArgs []string
 	if r.opts.Debug != "" {
 		if r.opts.Debug == "true" {
 			nodeArgs = append(nodeArgs, "--inspect")
@@ -125,24 +132,20 @@ func (r *Runner) build() (*exec.Cmd, error) {
 			nodeArgs = append(nodeArgs, "--inspect="+r.opts.Debug)
 		}
 	}
-
 	for _, ef := range r.opts.EnvFiles {
 		nodeArgs = append(nodeArgs, "--env-file="+ef)
 	}
-
 	nodeArgs = append(nodeArgs, "--enable-source-maps", outputFile)
 	nodeArgs = append(nodeArgs, r.opts.ExtraArgs...)
 
 	var cmd *exec.Cmd
 	if r.opts.Shell {
 		allParts := append([]string{r.opts.Binary}, nodeArgs...)
-		// Safely quote arguments for the shell
-		var quotedParts []string
-		for _, p := range allParts {
-			quotedParts = append(quotedParts, quoteShellArg(p))
+		quoted := make([]string, len(allParts))
+		for i, p := range allParts {
+			quoted[i] = quoteShellArg(p)
 		}
-		shellCmd := strings.Join(quotedParts, " ")
-		cmd = exec.Command("sh", "-c", shellCmd)
+		cmd = exec.Command("sh", "-c", strings.Join(quoted, " "))
 	} else {
 		cmd = exec.Command(r.opts.Binary, nodeArgs...)
 	}
@@ -152,24 +155,27 @@ func (r *Runner) build() (*exec.Cmd, error) {
 	cmd.Stdin = os.Stdin
 	cmd.Dir = r.opts.Cwd
 	setSysProcAttr(cmd)
-
 	return cmd, nil
 }
 
 func (r *Runner) resolveOutputFile() string {
+	seen := map[string]bool{}
 	candidates := []string{
 		filepath.Join(r.opts.Cwd, r.opts.OutDir, r.opts.SourceRoot, r.opts.EntryFile+".js"),
+		filepath.Join(r.opts.Cwd, r.opts.OutDir, r.opts.RootDir, r.opts.EntryFile+".js"),
 		filepath.Join(r.opts.Cwd, r.opts.OutDir, r.opts.EntryFile+".js"),
 	}
 	for _, c := range candidates {
+		if seen[c] {
+			continue
+		}
+		seen[c] = true
 		if _, err := os.Stat(c); err == nil {
 			return c
 		}
 	}
 	return ""
 }
-
-
 
 func quoteShellArg(arg string) string {
 	if !strings.ContainsAny(arg, " \t\n\r\"'\\$;<>|&()[]*?!#~") {

@@ -5,10 +5,11 @@ import (
 	"io/fs"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/fsnotify/fsnotify"
-	
+
 	"nego/internal/logger"
 )
 
@@ -16,6 +17,7 @@ import (
 // the onChange callback (debounced).
 type Watcher struct {
 	w          *fsnotify.Watcher
+	closeOnce  sync.Once
 	sourceRoot string
 	debounce   time.Duration
 	onChange   func()
@@ -64,7 +66,7 @@ func (wt *Watcher) loop(ctx context.Context) {
 	for {
 		select {
 		case <-ctx.Done():
-			wt.w.Close()
+			wt.Close()
 			if timer != nil {
 				timer.Stop()
 			}
@@ -109,7 +111,7 @@ func (wt *Watcher) loop(ctx context.Context) {
 }
 
 func (wt *Watcher) Close() {
-	_ = wt.w.Close()
+	wt.closeOnce.Do(func() { _ = wt.w.Close() })
 }
 
 func isTypeScriptFile(name string) bool {

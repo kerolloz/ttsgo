@@ -1,4 +1,3 @@
-// Package paths implements a post-emit path alias rewriter.
 package paths
 
 import (
@@ -6,6 +5,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -16,7 +16,7 @@ type Rewriter struct {
 	absOutDir    string
 	sourceBase   string
 	matchers     []pathMatcher
-	nodeModCache sync.Map // string → bool
+	nodeModCache sync.Map
 }
 
 type pathMatcher struct {
@@ -26,10 +26,31 @@ type pathMatcher struct {
 	targets     []string
 }
 
-// importRe matches all JS import/require/export-from specifiers.
-var importRe = regexp.MustCompile(
-	`(require\(["']|(?:import|export)[^"'\n]*?from\s+["'])([^"'\n]+)(["'])`,
-)
+// requireRe matches require("...") and dynamic import("...").
+var requireRe = regexp.MustCompile(`(require\(["']|import\s*\(\s*["'])([^"'\n]+)(["'])`)
+
+// fromRe matches static import/export ... from "..." including multiline.
+var fromRe = regexp.MustCompile(`(?s)((?:import|export)[^"']*?from\s+["'])([^"']+)(["'])`)
+
+type match struct {
+	start, end  int
+	prefix, specifier, quote string
+}
+
+func collectMatches(re *regexp.Regexp, content string) []match {
+	raw := re.FindAllStringSubmatchIndex(content, -1)
+	out := make([]match, 0, len(raw))
+	for _, m := range raw {
+		out = append(out, match{
+			start:     m[0],
+			end:       m[1],
+			prefix:    content[m[2]:m[3]],
+			specifier: content[m[4]:m[5]],
+			quote:     content[m[6]:m[7]],
+		})
+	}
+	return out
+}
 
 // New creates a Rewriter.
 func New(cwd string, paths map[string][]string, outDir, rootDir string) *Rewriter {
@@ -38,22 +59,16 @@ func New(cwd string, paths map[string][]string, outDir, rootDir string) *Rewrite
 		absOutDir = filepath.Join(cwd, outDir)
 	}
 
-	var sourceBase string
+	sourceBase := cwd
 	if rootDir != "" {
 		if filepath.IsAbs(rootDir) {
 			sourceBase = rootDir
 		} else {
 			sourceBase = filepath.Join(cwd, rootDir)
 		}
-	} else {
-		sourceBase = cwd
 	}
 
-	r := &Rewriter{
-		cwd:        cwd,
-		absOutDir:  absOutDir,
-		sourceBase: sourceBase,
-	}
+	r := &Rewriter{cwd: cwd, absOutDir: absOutDir, sourceBase: sourceBase}
 	r.buildMatchers(paths)
 	return r
 }
@@ -68,7 +83,6 @@ func (r *Rewriter) buildMatchers(paths map[string][]string) {
 			m.hasWildcard = true
 			m.prefix = strings.TrimSuffix(pattern, "*")
 		} else {
-			m.hasWildcard = false
 			m.prefix = pattern
 		}
 		r.matchers = append(r.matchers, m)
@@ -87,7 +101,7 @@ func (r *Rewriter) RewriteDir(outDir string) error {
 	}
 
 	var files []string
-	err := filepath.WalkDir(absOut, func(path string, d os.DirEntry, err error) error {
+	if err := filepath.WalkDir(absOut, func(path string, d os.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
@@ -95,15 +109,16 @@ func (r *Rewriter) RewriteDir(outDir string) error {
 			files = append(files, path)
 		}
 		return nil
-	})
-	if err != nil {
+	}); err != nil {
 		return err
 	}
 
-	var wg sync.WaitGroup
-	errs := make(chan error, len(files))
-	// Use NumCPU for the semaphore to better utilize hardware
-	sem := make(chan struct{}, runtime.NumCPU())
+	var (
+		wg   sync.WaitGroup
+		mu   sync.Mutex
+		errs []error
+		sem  = make(chan struct{}, runtime.NumCPU())
+	)
 
 	for _, f := range files {
 		wg.Add(1)
@@ -112,56 +127,54 @@ func (r *Rewriter) RewriteDir(outDir string) error {
 			sem <- struct{}{}
 			defer func() { <-sem }()
 			if err := r.rewriteFile(filePath); err != nil {
-				errs <- err
+				mu.Lock()
+				errs = append(errs, err)
+				mu.Unlock()
 			}
 		}(f)
 	}
 	wg.Wait()
-	close(errs)
 
-	for e := range errs {
-		if e != nil {
-			return e
-		}
+	if len(errs) > 0 {
+		return errs[0]
 	}
 	return nil
 }
 
-// rewriteFile rewrites path aliases in a single JS file.
 func (r *Rewriter) rewriteFile(filePath string) error {
 	data, err := os.ReadFile(filePath)
 	if err != nil {
 		return err
 	}
-
 	content := string(data)
-	modified := false
 
-	// Optimized: avoid double-regex by using FindAllStringSubmatchIndex
-	matches := importRe.FindAllStringSubmatchIndex(content, -1)
-	if len(matches) == 0 {
+	// Collect matches from both regexes, merge by start position.
+	all := append(collectMatches(requireRe, content), collectMatches(fromRe, content)...)
+	if len(all) == 0 {
 		return nil
 	}
+	sort.Slice(all, func(i, j int) bool { return all[i].start < all[j].start })
 
 	var sb strings.Builder
 	lastPos := 0
-	for _, match := range matches {
-		sb.WriteString(content[lastPos:match[0]])
-		
-		matchPrefix := content[match[2]:match[3]]
-		specifier := content[match[4]:match[5]]
-		closingQuote := content[match[6]:match[7]]
+	modified := false
 
-		resolved, ok := r.resolveAlias(specifier, filePath)
+	for _, m := range all {
+		if m.start < lastPos {
+			continue // skip overlapping (shouldn't happen in valid JS)
+		}
+		sb.WriteString(content[lastPos:m.start])
+
+		resolved, ok := r.resolveAlias(m.specifier, filePath)
 		if ok {
-			sb.WriteString(matchPrefix)
+			sb.WriteString(m.prefix)
 			sb.WriteString(resolved)
-			sb.WriteString(closingQuote)
+			sb.WriteString(m.quote)
 			modified = true
 		} else {
-			sb.WriteString(content[match[0]:match[1]])
+			sb.WriteString(content[m.start:m.end])
 		}
-		lastPos = match[1]
+		lastPos = m.end
 	}
 	sb.WriteString(content[lastPos:])
 
@@ -175,7 +188,6 @@ func (r *Rewriter) resolveAlias(specifier, fromFile string) (string, bool) {
 	if strings.HasPrefix(specifier, ".") || strings.HasPrefix(specifier, "/") {
 		return "", false
 	}
-
 	if r.isNodeModule(specifier) {
 		return "", false
 	}
@@ -185,10 +197,9 @@ func (r *Rewriter) resolveAlias(specifier, fromFile string) (string, bool) {
 		if !matched {
 			continue
 		}
-
 		for _, tpl := range m.targets {
-			var sourceTargetAbs string
 			tplClean := filepath.FromSlash(tpl)
+			var sourceTargetAbs string
 			if m.hasWildcard {
 				tplBase := strings.TrimSuffix(strings.TrimSuffix(tplClean, "/*"), "*")
 				sourceTargetAbs = filepath.Join(r.cwd, tplBase, remainder)
@@ -204,13 +215,11 @@ func (r *Rewriter) resolveAlias(specifier, fromFile string) (string, bool) {
 				}
 			}
 			outputTargetAbs := filepath.Join(r.absOutDir, rel)
-
 			fromDir := filepath.Dir(fromFile)
 			relPath, err := filepath.Rel(fromDir, outputTargetAbs)
 			if err != nil {
 				continue
 			}
-
 			relPath = filepath.ToSlash(relPath)
 			if !strings.HasPrefix(relPath, ".") {
 				relPath = "./" + relPath
@@ -229,10 +238,8 @@ func matchPattern(m pathMatcher, specifier string) (string, bool) {
 		if strings.HasPrefix(specifier, m.prefix+"/") {
 			return strings.TrimPrefix(specifier, m.prefix+"/"), true
 		}
-	} else {
-		if specifier == m.pattern {
-			return "", true
-		}
+	} else if specifier == m.pattern {
+		return "", true
 	}
 	return "", false
 }
@@ -243,11 +250,9 @@ func (r *Rewriter) isNodeModule(specifier string) bool {
 	if strings.HasPrefix(pkgName, "@") && len(parts) >= 2 {
 		pkgName = parts[0] + "/" + parts[1]
 	}
-
 	if v, ok := r.nodeModCache.Load(pkgName); ok {
 		return v.(bool)
 	}
-
 	_, err := os.Stat(filepath.Join(r.cwd, "node_modules", pkgName))
 	exists := err == nil
 	r.nodeModCache.Store(pkgName, exists)

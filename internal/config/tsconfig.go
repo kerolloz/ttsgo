@@ -55,10 +55,16 @@ func loadTsConfigAbs(cwd, absPath string, depth int) (*TsConfig, error) {
 		return &TsConfig{OutDir: "dist"}, nil
 	}
 
-	data = stripJSONC(data)
+	stripped, stripErr := stripJSONC(data)
+	if stripErr != nil {
+		if depth == 0 {
+			return nil, fmt.Errorf("failed to strip JSONC at %s: %w", absPath, stripErr)
+		}
+		return &TsConfig{OutDir: "dist"}, nil
+	}
 
 	var f tsConfigFile
-	if err := json.Unmarshal(data, &f); err != nil {
+	if err := json.Unmarshal(stripped, &f); err != nil {
 		if depth == 0 {
 			return nil, fmt.Errorf("failed to parse tsconfig at %s: %w", absPath, err)
 		}
@@ -124,7 +130,7 @@ func resolveExtends(cwd, currentDir, extends string) string {
 	return p
 }
 
-func stripJSONC(data []byte) []byte {
+func stripJSONC(data []byte) ([]byte, error) {
 	result := make([]byte, 0, len(data))
 	i := 0
 	inString := false
@@ -161,7 +167,7 @@ func stripJSONC(data []byte) []byte {
 			if i+1 < len(data) {
 				i += 2
 			} else {
-				i = len(data) // Unterminated comment
+				return nil, fmt.Errorf("unterminated block comment in JSONC")
 			}
 			continue
 		}
@@ -193,13 +199,11 @@ func stripJSONC(data []byte) []byte {
 			continue
 		}
 		if c == ',' {
-			// Look ahead for } or ]
 			j := i + 1
 			for j < len(result) && (result[j] == ' ' || result[j] == '\n' || result[j] == '\r' || result[j] == '\t') {
 				j++
 			}
 			if j < len(result) && (result[j] == '}' || result[j] == ']') {
-				// It's a trailing comma, skip it
 				i++
 				continue
 			}
@@ -208,5 +212,5 @@ func stripJSONC(data []byte) []byte {
 		i++
 	}
 
-	return finalResult
+	return finalResult, nil
 }
