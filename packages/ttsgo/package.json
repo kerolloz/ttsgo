@@ -1,0 +1,27 @@
+{
+  "name": "ttsgo",
+  "version": "0.1.0",
+  "description": "Ultra-fast TypeScript compiler using Go, with built-in path alias resolution.",
+  "main": "bin/ttsgo.js",
+  "bin": {
+    "ttsgo": "bin/ttsgo.js"
+  },
+  "keywords": [
+    "typescript",
+    "compiler",
+    "go",
+    "fast",
+    "paths",
+    "alias"
+  ],
+  "author": "Kerollos Magdy",
+  "license": "MIT",
+  "optionalDependencies": {
+    "@ttsgo/core-darwin-arm64": "0.1.0",
+    "@ttsgo/core-darwin-x64": "0.1.0",
+    "@ttsgo/core-linux-arm64": "0.1.0",
+    "@ttsgo/core-linux-x64": "0.1.0",
+    "@ttsgo/core-win32-arm64": "0.1.0",
+    "@ttsgo/core-win32-x64": "0.1.0"
+  }
+}

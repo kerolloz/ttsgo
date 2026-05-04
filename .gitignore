@@ -1,6 +1,3 @@
-# Compiled binary
-nego
-
 # Go build artifacts
 *.exe
 *.exe~
@@ -34,3 +31,14 @@ __debug_bin*
 # Environment files
 .env
 .env.local
+
+# Node.js
+node_modules/
+dist/
+
+# Binaries
+bin/
+packages/*/bin/
+
+# Dummy Test Projects (Keep them, but they inherit node_modules/dist ignore)
+# tests/dummy-*/

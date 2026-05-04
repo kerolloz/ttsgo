@@ -1,0 +1,31 @@
+{
+  "name": "nego",
+  "version": "0.1.0",
+  "description": "Ultra-fast drop-in replacement for nest build & nest start, powered by tsgo.",
+  "main": "bin/nego.js",
+  "bin": {
+    "nego": "bin/nego.js"
+  },
+  "keywords": [
+    "nestjs",
+    "cli",
+    "build",
+    "compiler",
+    "go",
+    "fast",
+    "ttsgo"
+  ],
+  "author": "Kerollos Magdy",
+  "license": "MIT",
+  "dependencies": {
+    "ttsgo": "^0.1.0"
+  },
+  "optionalDependencies": {
+    "@nego/core-darwin-arm64": "0.1.0",
+    "@nego/core-darwin-x64": "0.1.0",
+    "@nego/core-linux-arm64": "0.1.0",
+    "@nego/core-linux-x64": "0.1.0",
+    "@nego/core-win32-arm64": "0.1.0",
+    "@nego/core-win32-x64": "0.1.0"
+  }
+}

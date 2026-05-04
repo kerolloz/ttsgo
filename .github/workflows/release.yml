@@ -1,0 +1,100 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - uses: extractions/setup-just@v3
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+
+      - name: Extract version
+        id: version
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Initialize
+        run: just init
+
+      - name: Build all binaries
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: just build-all $VERSION
+
+      - name: Bump package versions
+        env:
+          VERSION: ${{ steps.version.outputs.VERSION }}
+        run: |
+          node - <<'EOF'
+          const fs = require('fs'), path = require('path');
+          const version = process.env.VERSION;
+          const pkgs = fs.readdirSync('packages', { withFileTypes: true })
+            .filter(d => d.isDirectory())
+            .map(d => path.join('packages', d.name, 'package.json'))
+            .filter(f => fs.existsSync(f));
+          for (const f of pkgs) {
+            const pkg = JSON.parse(fs.readFileSync(f, 'utf8'));
+            pkg.version = version;
+            // Update dependencies for ttsgo/nego
+            if (pkg.optionalDependencies) {
+              for (const dep in pkg.optionalDependencies) {
+                if (dep.startsWith('@ttsgo/') || dep.startsWith('@nego/')) {
+                  pkg.optionalDependencies[dep] = version;
+                }
+              }
+            }
+            if (pkg.dependencies && pkg.dependencies.ttsgo) {
+              pkg.dependencies.ttsgo = "^" + version;
+            }
+            fs.writeFileSync(f, JSON.stringify(pkg, null, 2) + '\n');
+          }
+          EOF
+
+      - name: Publish to npm
+        run: |
+          # Note: This assumes you are using OIDC Trusted Publishing
+          # or have set up an NPM_TOKEN. Using 'npm publish' in a loop
+          # for simplicity, though 'pnpm publish -r' is better if using pnpm.
+          for dir in packages/*; do
+            if [ -f "$dir/package.json" ]; then
+              cd "$dir" && npm publish --access public --provenance || true && cd ../..
+            fi
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            packages/ttsgo-darwin-arm64/bin/ttsgo
+            packages/ttsgo-darwin-x64/bin/ttsgo
+            packages/ttsgo-linux-arm64/bin/ttsgo
+            packages/ttsgo-linux-x64/bin/ttsgo
+            packages/ttsgo-win32-arm64/bin/ttsgo.exe
+            packages/ttsgo-win32-x64/bin/ttsgo.exe
+            packages/nego-darwin-arm64/bin/nego
+            packages/nego-darwin-x64/bin/nego
+            packages/nego-linux-arm64/bin/nego
+            packages/nego-linux-x64/bin/nego
+            packages/nego-win32-arm64/bin/nego.exe
+            packages/nego-win32-x64/bin/nego.exe
