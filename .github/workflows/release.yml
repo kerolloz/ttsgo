@@ -1,9 +1,8 @@
 name: Release
 
+# Only triggered by pushing a version tag: git tag v0.1.0 && git push --tags
 on:
   push:
-    branches:
-      - main
     tags:
       - "v*.*.*"
 
@@ -14,6 +13,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-latest
+
     steps:
       - uses: actions/checkout@v6
         with:
@@ -23,25 +23,31 @@ jobs:
         with:
           go-version: "1.26"
           cache: true
+          cache-dependency-path: "**/go.sum"
 
       - uses: extractions/setup-just@v3
 
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
+          registry-url: "https://registry.npmjs.org"
 
+      # ── 1. Extract semver from tag (strip leading "v") ────────
       - name: Extract version
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
+      # ── 2. Initialize Go modules ─────────────────────────────
       - name: Initialize
         run: just init
 
+      # ── 3. Cross-compile all 12 platform binaries ─────────────
       - name: Build all binaries
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
-        run: just build-all $VERSION
+        run: just build-all "$VERSION"
 
+      # ── 4. Bump version in every packages/*/package.json ──────
       - name: Bump package versions
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
@@ -56,7 +62,6 @@ jobs:
           for (const f of pkgs) {
             const pkg = JSON.parse(fs.readFileSync(f, 'utf8'));
             pkg.version = version;
-            // Update dependencies for ttsgo/nego
             if (pkg.optionalDependencies) {
               for (const dep in pkg.optionalDependencies) {
                 if (dep.startsWith('@ttsgo/') || dep.startsWith('@nego/')) {
@@ -68,25 +73,43 @@ jobs:
               pkg.dependencies.ttsgo = "^" + version;
             }
             fs.writeFileSync(f, JSON.stringify(pkg, null, 2) + '\n');
+            console.log(`  ${f} → ${version}`);
           }
+          console.log(`Bumped ${pkgs.length} package(s) to ${version}`);
           EOF
 
-      - name: Publish to npm
+      # ── 5. Publish each package to npm ────────────────────────
+      #
+      # Platform packages MUST be published before the main ttsgo/nego
+      # packages so that optionalDependencies resolve correctly.
+      # We publish all platform packages first, then the main ones.
+      - name: Publish platform packages to npm
         run: |
-          # Note: This assumes you are using OIDC Trusted Publishing
-          # or have set up an NPM_TOKEN. Using 'npm publish' in a loop
-          # for simplicity, though 'pnpm publish -r' is better if using pnpm.
-          for dir in packages/*; do
+          for dir in packages/ttsgo-* packages/nego-*; do
             if [ -f "$dir/package.json" ]; then
-              cd "$dir" && npm publish --access public --provenance || true && cd ../..
+              echo "Publishing $(basename $dir)..."
+              (cd "$dir" && npm publish --access public --provenance) || true
             fi
           done
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
+      - name: Publish main packages to npm
+        run: |
+          for dir in packages/ttsgo packages/nego; do
+            if [ -f "$dir/package.json" ]; then
+              echo "Publishing $(basename $dir)..."
+              (cd "$dir" && npm publish --access public --provenance) || true
+            fi
+          done
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      # ── 6. Create GitHub Release with raw binaries attached ───
       - name: Create GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
+          generate_release_notes: true
           files: |
             packages/ttsgo-darwin-arm64/bin/ttsgo
             packages/ttsgo-darwin-x64/bin/ttsgo
