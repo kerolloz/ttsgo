@@ -3,6 +3,8 @@ name: Release
 # Only triggered by pushing a version tag: git tag v0.1.0 && git push --tags
 on:
   push:
+    branches:
+      - main
     tags:
       - "v*.*.*"
 
