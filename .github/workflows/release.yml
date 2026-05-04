@@ -1,25 +1,25 @@
-name: Release
+name: CI & Release
 
-# Only triggered by pushing a version tag: git tag v0.1.0 && git push --tags
 on:
   push:
     branches:
       - main
     tags:
       - "v*.*.*"
+  pull_request:
+    branches:
+      - main
 
 permissions:
   contents: write
   id-token: write
 
 jobs:
-  release:
+  # ── CI: quick smoke test on every push/PR ──────────────────
+  ci:
     runs-on: ubuntu-latest
-
     steps:
       - uses: actions/checkout@v6
-        with:
-          fetch-depth: 0
 
       - uses: actions/setup-go@v6
         with:
@@ -29,27 +29,153 @@ jobs:
 
       - uses: extractions/setup-just@v3
 
+      - name: Initialize
+        run: just init
+
+      - name: Build (current platform)
+        run: just build
+
+      - name: Verify binaries
+        run: ls -lh bin/ttsgo bin/nego
+
+  # ── Build: parallel native compilation on 3 OS runners ────
+  build:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: ci
+    strategy:
+      matrix:
+        include:
+          - runner: macos-latest
+            goos: darwin
+            goarch: arm64
+            npm_os: darwin
+            npm_arch: arm64
+          - runner: macos-latest
+            goos: darwin
+            goarch: amd64
+            npm_os: darwin
+            npm_arch: x64
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: arm64
+            npm_os: linux
+            npm_arch: arm64
+          - runner: ubuntu-latest
+            goos: linux
+            goarch: amd64
+            npm_os: linux
+            npm_arch: x64
+          - runner: windows-latest
+            goos: windows
+            goarch: arm64
+            npm_os: win32
+            npm_arch: arm64
+          - runner: windows-latest
+            goos: windows
+            goarch: amd64
+            npm_os: win32
+            npm_arch: x64
+
+    runs-on: ${{ matrix.runner }}
+    name: build (${{ matrix.npm_os }}-${{ matrix.npm_arch }})
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: actions/setup-go@v6
+        with:
+          go-version: "1.26"
+          cache: true
+          cache-dependency-path: "**/go.sum"
+
+      - name: Extract version
+        id: version
+        shell: bash
+        run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
+
+      - name: Build ttsgo
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          EXT=""
+          [[ "$GOOS" == "windows" ]] && EXT=".exe"
+          cd packages/ttsgo
+          go build -ldflags="-s -w -X main.version=${{ steps.version.outputs.VERSION }}" \
+            -o ../../ttsgo${EXT} ./cmd/ttsgo
+
+      - name: Build nego
+        shell: bash
+        env:
+          CGO_ENABLED: "0"
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+        run: |
+          EXT=""
+          [[ "$GOOS" == "windows" ]] && EXT=".exe"
+          cd packages/nego
+          go build -ldflags="-s -w -X main.version=${{ steps.version.outputs.VERSION }}" \
+            -o ../../nego${EXT} .
+
+      - name: Upload ttsgo binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ttsgo-${{ matrix.npm_os }}-${{ matrix.npm_arch }}
+          path: ttsgo*
+
+      - name: Upload nego binary
+        uses: actions/upload-artifact@v4
+        with:
+          name: nego-${{ matrix.npm_os }}-${{ matrix.npm_arch }}
+          path: nego*
+
+  # ── Publish: collect all artifacts, publish to npm + GitHub ─
+  publish:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+
       - uses: actions/setup-node@v6
         with:
           node-version: "24"
           registry-url: "https://registry.npmjs.org"
 
-      # ── 1. Extract semver from tag (strip leading "v") ────────
       - name: Extract version
         id: version
         run: echo "VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_OUTPUT"
 
-      # ── 2. Initialize Go modules ─────────────────────────────
-      - name: Initialize
-        run: just init
+      # Download all 12 binaries from the matrix build
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts/
 
-      # ── 3. Cross-compile all 12 platform binaries ─────────────
-      - name: Build all binaries
-        env:
-          VERSION: ${{ steps.version.outputs.VERSION }}
-        run: just build-all "$VERSION"
+      # Place binaries into their platform package directories
+      - name: Distribute binaries to packages
+        run: |
+          for dir in artifacts/ttsgo-*; do
+            PLATFORM=$(basename "$dir" | sed 's/ttsgo-//')
+            mkdir -p packages/ttsgo-${PLATFORM}/bin
+            cp "$dir"/ttsgo* packages/ttsgo-${PLATFORM}/bin/
+            chmod +x packages/ttsgo-${PLATFORM}/bin/ttsgo* 2>/dev/null || true
+          done
 
-      # ── 4. Bump version in every packages/*/package.json ──────
+          for dir in artifacts/nego-*; do
+            PLATFORM=$(basename "$dir" | sed 's/nego-//')
+            mkdir -p packages/nego-${PLATFORM}/bin
+            cp "$dir"/nego* packages/nego-${PLATFORM}/bin/
+            chmod +x packages/nego-${PLATFORM}/bin/nego* 2>/dev/null || true
+          done
+
+          echo "Distributed binaries:"
+          find packages/*/bin -type f | sort
+
+      # Bump version in all package.json files
       - name: Bump package versions
         env:
           VERSION: ${{ steps.version.outputs.VERSION }}
@@ -77,15 +203,11 @@ jobs:
             fs.writeFileSync(f, JSON.stringify(pkg, null, 2) + '\n');
             console.log(`  ${f} → ${version}`);
           }
-          console.log(`Bumped ${pkgs.length} package(s) to ${version}`);
+          console.log(`\nBumped ${pkgs.length} package(s) to ${version}`);
           EOF
 
-      # ── 5. Publish each package to npm ────────────────────────
-      #
-      # Platform packages MUST be published before the main ttsgo/nego
-      # packages so that optionalDependencies resolve correctly.
-      # We publish all platform packages first, then the main ones.
-      - name: Publish platform packages to npm
+      # Publish platform packages first, then main packages
+      - name: Publish platform packages
         run: |
           for dir in packages/ttsgo-* packages/nego-*; do
             if [ -f "$dir/package.json" ]; then
@@ -96,7 +218,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      - name: Publish main packages to npm
+      - name: Publish main packages
         run: |
           for dir in packages/ttsgo packages/nego; do
             if [ -f "$dir/package.json" ]; then
@@ -107,7 +229,7 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # ── 6. Create GitHub Release with raw binaries attached ───
+      # Create GitHub Release with all binaries
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
