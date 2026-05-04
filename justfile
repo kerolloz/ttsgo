@@ -4,20 +4,19 @@ set shell := ["bash", "-cu"]
 
 # Initialize the project (install deps, etc)
 init:
-	go mod tidy
 	cd packages/ttsgo && go mod tidy
 	cd packages/nego && go mod tidy
 
 # Build the binaries for the current platform
 build:
 	mkdir -p bin
-	go build -ldflags="-s -w" -o bin/ttsgo ./packages/ttsgo/cmd/ttsgo
-	go build -ldflags="-s -w" -o bin/nego ./packages/nego/main.go
+	cd packages/ttsgo && go build -ldflags="-s -w" -o ../../bin/ttsgo ./cmd/ttsgo
+	cd packages/nego && go build -ldflags="-s -w" -o ../../bin/nego .
 
 # Cross-compile for all platforms (used by CI)
 build-all version:
 	#!/usr/bin/env bash
-	set -e
+	set -euo pipefail
 	LDFLAGS="-s -w -X main.version={{version}}"
 	PLATFORMS=("darwin/arm64" "darwin/amd64" "linux/arm64" "linux/amd64" "windows/arm64" "windows/amd64")
 	
@@ -27,31 +26,34 @@ build-all version:
 		
 		# Map GOOS/GOARCH to NPM naming conventions
 		NPM_OS=$OS
-		if [ "$OS" == "windows" ]; then NPM_OS="win32"; fi
+		[[ "$OS" == "windows" ]] && NPM_OS="win32"
 		NPM_ARCH=$ARCH
-		if [ "$ARCH" == "amd64" ]; then NPM_ARCH="x64"; fi
+		[[ "$ARCH" == "amd64" ]] && NPM_ARCH="x64"
 		
 		EXT=""
-		if [ "$OS" == "windows" ]; then EXT=".exe"; fi
+		[[ "$OS" == "windows" ]] && EXT=".exe"
 		
-		echo "Building $OS-$ARCH..."
-		
-		# Build ttsgo
+		echo "  Building ttsgo ($NPM_OS-$NPM_ARCH)..."
 		mkdir -p packages/ttsgo-$NPM_OS-$NPM_ARCH/bin
-		GOOS=$OS GOARCH=$ARCH go build -ldflags="$LDFLAGS" -o packages/ttsgo-$NPM_OS-$NPM_ARCH/bin/ttsgo$EXT ./packages/ttsgo/cmd/ttsgo
+		(cd packages/ttsgo && CGO_ENABLED=0 GOOS=$OS GOARCH=$ARCH \
+			go build -ldflags="$LDFLAGS" \
+			-o ../../packages/ttsgo-$NPM_OS-$NPM_ARCH/bin/ttsgo$EXT ./cmd/ttsgo)
 		
-		# Build nego
+		echo "  Building nego ($NPM_OS-$NPM_ARCH)..."
 		mkdir -p packages/nego-$NPM_OS-$NPM_ARCH/bin
-		GOOS=$OS GOARCH=$ARCH go build -ldflags="$LDFLAGS" -o packages/nego-$NPM_OS-$NPM_ARCH/bin/nego$EXT ./packages/nego/main.go
+		(cd packages/nego && CGO_ENABLED=0 GOOS=$OS GOARCH=$ARCH \
+			go build -ldflags="$LDFLAGS" \
+			-o ../../packages/nego-$NPM_OS-$NPM_ARCH/bin/nego$EXT .)
 		
-		# Set executable bits
-		if [ "$OS" != "windows" ]; then
+		# Set executable bits for Unix targets
+		if [[ "$OS" != "windows" ]]; then
 			chmod +x packages/ttsgo-$NPM_OS-$NPM_ARCH/bin/ttsgo
 			chmod +x packages/nego-$NPM_OS-$NPM_ARCH/bin/nego
 		fi
 	done
+	echo "✓ All 12 binaries built."
 
 # Clean build artifacts
 clean:
 	rm -rf bin
-	find packages -name "bin" -type d -exec rm -rf {} +
+	find packages -name "bin" -type d -exec rm -rf {} + 2>/dev/null || true
