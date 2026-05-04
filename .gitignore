@@ -11,7 +11,7 @@
 coverage.txt
 
 # Go workspace
-go.work
+# go.work is committed for CI — it uses relative paths only
 go.work.sum
 
 # IDE / Editor
