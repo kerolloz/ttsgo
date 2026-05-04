@@ -11,8 +11,8 @@ github.com/inconshreveable/mousetrap v1.1.0 h1:wN+x4NVGpMsO7ErUn/mUI3vEoE6Jt13X2
 github.com/inconshreveable/mousetrap v1.1.0/go.mod h1:vpF70FUmC8bwa3OWnCshd2FqLfsEA9PFc4w1p2J65bw=
 github.com/klauspost/cpuid/v2 v2.2.10 h1:tBs3QSyvjDyFTq3uoc/9xFpCuOsJQFNPiAhYdw2skhE=
 github.com/klauspost/cpuid/v2 v2.2.10/go.mod h1:hqwkgyIinND0mEev00jJYCxPNVRVXFQeu1XKlok6oO0=
-github.com/microsoft/typescript-go v0.0.0-20260429010842-56ab4af42157 h1:llOMPhKDiQ+UEJiAaQuuWaJOTg5V7tNNTEf9JPWoYSY=
-github.com/microsoft/typescript-go v0.0.0-20260429010842-56ab4af42157/go.mod h1:m8YA0PMC7ti0GW0RI05D6fEcjQeu98XVS+FWF+VDW2k=
+github.com/microsoft/typescript-go v0.0.0-20260502132318-2f6504c1b0ef h1:Slum1srHLs0KdON+9U1jf8/aHquoNEpUyUk9+d73dcg=
+github.com/microsoft/typescript-go v0.0.0-20260502132318-2f6504c1b0ef/go.mod h1:m8YA0PMC7ti0GW0RI05D6fEcjQeu98XVS+FWF+VDW2k=
 github.com/peter-evans/patience v0.3.0 h1:rX0JdJeepqdQl1Sk9c9uvorjYYzL2TfgLX1adqYm9cA=
 github.com/peter-evans/patience v0.3.0/go.mod h1:Kmxu5sY1NmBLFSStvXjX1wS9mIv7wMcP/ubucyMOAu0=
 github.com/russross/blackfriday/v2 v2.1.0/go.mod h1:+Rmxgy9KzJVeS9/2gXHxylqXiyQDYRxCVz55jmeOWTM=
