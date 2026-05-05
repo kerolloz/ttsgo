@@ -6,6 +6,9 @@
   "bin": {
     "ttsgo": "bin/ttsgo.js"
   },
+  "files": [
+    "bin/"
+  ],
   "keywords": [
     "typescript",
     "compiler",

@@ -36,9 +36,17 @@ __debug_bin*
 node_modules/
 dist/
 
-# Binaries
+# Binaries (top-level build output)
 bin/
+
+# Platform package binaries (native Go binaries placed by CI)
 packages/*/bin/
+
+# But keep the JS launcher scripts in main packages
+!packages/ttsgo/bin/
+!packages/ttsgo/bin/ttsgo.js
+!packages/nestgo/bin/
+!packages/nestgo/bin/nestgo.js
 
 # Dummy Test Projects (Keep them, but they inherit node_modules/dist ignore)
 # tests/dummy-*/

@@ -6,6 +6,9 @@
   "bin": {
     "nestgo": "bin/nestgo.js"
   },
+  "files": [
+    "bin/"
+  ],
   "keywords": [
     "nestjs",
     "cli",
