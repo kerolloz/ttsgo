@@ -5,13 +5,13 @@ set shell := ["bash", "-cu"]
 # Initialize the project (tidy Go modules)
 init:
 	cd packages/ttsgo && go mod tidy
-	cd packages/nego && go mod tidy
+	cd packages/nestgo && go mod tidy
 
 # Build both binaries for the current platform (used by CI + local dev)
 build:
 	mkdir -p bin
 	cd packages/ttsgo && go build -ldflags="-s -w" -o ../../bin/ttsgo ./cmd/ttsgo
-	cd packages/nego && go build -ldflags="-s -w" -o ../../bin/nego .
+	cd packages/nestgo && go build -ldflags="-s -w" -o ../../bin/nestgo .
 
 # Clean build artifacts
 clean:

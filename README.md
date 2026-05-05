@@ -1,9 +1,9 @@
-# ttsgo & nego
+# ttsgo & nestgo
 
 This repository contains two revolutionary tools designed to supercharge your TypeScript and NestJS development workflows by leveraging the speed of native Go.
 
 *   [**`ttsgo`**](#ttsgo): An ultra-fast native TypeScript compiler engine.
-*   [**`nego`**](#nego): A drop-in replacement for the NestJS CLI (`nest build` and `nest start`).
+*   [**`nestgo`**](#nestgo): A drop-in replacement for the NestJS CLI (`nest build` and `nest start`).
 
 ---
 
@@ -16,7 +16,7 @@ Both tools achieve phenomenal performance improvements by using native Go instea
 | Standard TS | `tsc` | 0.643s | Baseline |
 | Standard TS | **`ttsgo`** | 0.130s | **~5x Faster** |
 | NestJS App | `nest build`| 1.856s | Baseline |
-| NestJS App | **`nego`** | 0.060s | **~30x Faster** |
+| NestJS App | **`nestgo`** | 0.060s | **~30x Faster** |
 
 > *Note: Benchmarks performed on dummy projects. Real-world speedups may vary, but typically sit between 5x and 30x.*
 
@@ -43,28 +43,28 @@ ttsgo -p tsconfig.json
 
 ---
 
-## ⚡ `nego` (NestJS CLI Replacement)
+## ⚡ `nestgo` (NestJS CLI Replacement)
 
-`nego` is a lightweight, ultra-fast CLI orchestrator tailored specifically for NestJS applications. It completely bypasses Node.js compilation and utilizes `ttsgo`'s engine as a direct library binding (`//go:linkname`).
+`nestgo` is a lightweight, ultra-fast CLI orchestrator tailored specifically for NestJS applications. It completely bypasses Node.js compilation and utilizes `ttsgo`'s engine as a direct library binding (`//go:linkname`).
 
 ### Features
 - In-process TypeScript compilation (no child process overhead).
 - Understands `nest-cli.json` natively.
 - Handles NestJS Asset compilation (e.g. `*.graphql`, `*.html`).
-- Watch mode (`nego start --watch`) with lightning-fast rebuilds.
+- Watch mode (`nestgo start --watch`) with lightning-fast rebuilds.
 
 ### Usage
 ```bash
-npm install -g nego
+npm install -g nestgo
 
 # Build your NestJS app (replaces `nest build`)
-nego build
+nestgo build
 
 # Build and start your NestJS app (replaces `nest start`)
-nego start
+nestgo start
 
 # Watch mode
-nego start --watch
+nestgo start --watch
 ```
 
 ---
@@ -74,7 +74,7 @@ nego start --watch
 This is a Go workspace Monorepo containing the following structures:
 
 1. **`packages/ttsgo`**: Exposes both the CLI binary and the `pkg/engine` module. Uses `//go:linkname` shims to pierce the `internal/` barrier of `typescript-go`.
-2. **`packages/nego`**: Consumes `ttsgo/pkg/engine` to orchestrate builds without executing `exec.Command`.
+2. **`packages/nestgo`**: Consumes `ttsgo/pkg/engine` to orchestrate builds without executing `exec.Command`.
 
 ### Development
 
@@ -84,7 +84,7 @@ To build the binaries locally:
 cd packages/ttsgo
 go build -o ../../bin/ttsgo ./cmd/ttsgo
 
-# Build nego
-cd packages/nego
-go build -o ../../bin/nego ./main.go
+# Build nestgo
+cd packages/nestgo
+go build -o ../../bin/nestgo ./main.go
 ```

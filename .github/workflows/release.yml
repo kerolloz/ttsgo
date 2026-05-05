@@ -36,7 +36,7 @@ jobs:
         run: just build
 
       - name: Verify binaries
-        run: ls -lh bin/ttsgo bin/nego
+        run: ls -lh bin/ttsgo bin/nestgo
 
   # ── Build: parallel native compilation on 3 OS runners ────
   build:
@@ -106,7 +106,7 @@ jobs:
           go build -ldflags="-s -w -X main.version=${{ steps.version.outputs.VERSION }}" \
             -o ../../ttsgo${EXT} ./cmd/ttsgo
 
-      - name: Build nego
+      - name: Build nestgo
         shell: bash
         env:
           CGO_ENABLED: "0"
@@ -115,9 +115,9 @@ jobs:
         run: |
           EXT=""
           [[ "$GOOS" == "windows" ]] && EXT=".exe"
-          cd packages/nego
+          cd packages/nestgo
           go build -ldflags="-s -w -X main.version=${{ steps.version.outputs.VERSION }}" \
-            -o ../../nego${EXT} .
+            -o ../../nestgo${EXT} .
 
       - name: Upload ttsgo binary
         uses: actions/upload-artifact@v4
@@ -125,11 +125,11 @@ jobs:
           name: ttsgo-${{ matrix.npm_os }}-${{ matrix.npm_arch }}
           path: ttsgo*
 
-      - name: Upload nego binary
+      - name: Upload nestgo binary
         uses: actions/upload-artifact@v4
         with:
-          name: nego-${{ matrix.npm_os }}-${{ matrix.npm_arch }}
-          path: nego*
+          name: nestgo-${{ matrix.npm_os }}-${{ matrix.npm_arch }}
+          path: nestgo*
 
   # ── Publish: collect all artifacts, publish to npm + GitHub ─
   publish:
@@ -165,11 +165,11 @@ jobs:
             chmod +x packages/ttsgo-${PLATFORM}/bin/ttsgo* 2>/dev/null || true
           done
 
-          for dir in artifacts/nego-*; do
-            PLATFORM=$(basename "$dir" | sed 's/nego-//')
-            mkdir -p packages/nego-${PLATFORM}/bin
-            cp "$dir"/nego* packages/nego-${PLATFORM}/bin/
-            chmod +x packages/nego-${PLATFORM}/bin/nego* 2>/dev/null || true
+          for dir in artifacts/nestgo-*; do
+            PLATFORM=$(basename "$dir" | sed 's/nestgo-//')
+            mkdir -p packages/nestgo-${PLATFORM}/bin
+            cp "$dir"/nestgo* packages/nestgo-${PLATFORM}/bin/
+            chmod +x packages/nestgo-${PLATFORM}/bin/nestgo* 2>/dev/null || true
           done
 
           echo "Distributed binaries:"
@@ -192,7 +192,7 @@ jobs:
             pkg.version = version;
             if (pkg.optionalDependencies) {
               for (const dep in pkg.optionalDependencies) {
-                if (dep.startsWith('@ttsgo/') || dep.startsWith('@nego/')) {
+                if (dep.startsWith('@ttsgo/') || dep.startsWith('@nestgo/')) {
                   pkg.optionalDependencies[dep] = version;
                 }
               }
@@ -209,7 +209,7 @@ jobs:
       # Publish platform packages first, then main packages
       - name: Publish platform packages
         run: |
-          for dir in packages/ttsgo-* packages/nego-*; do
+          for dir in packages/ttsgo-* packages/nestgo-*; do
             if [ -f "$dir/package.json" ]; then
               echo "Publishing $(basename $dir)..."
               (cd "$dir" && npm publish --access public --provenance) || true
@@ -220,7 +220,7 @@ jobs:
 
       - name: Publish main packages
         run: |
-          for dir in packages/ttsgo packages/nego; do
+          for dir in packages/ttsgo packages/nestgo; do
             if [ -f "$dir/package.json" ]; then
               echo "Publishing $(basename $dir)..."
               (cd "$dir" && npm publish --access public --provenance) || true
@@ -234,7 +234,7 @@ jobs:
       - name: Rename binaries for release
         run: |
           mkdir -p release
-          for app in ttsgo nego; do
+          for app in ttsgo nestgo; do
             for dir in packages/${app}-*/bin; do
               PLATFORM=$(echo "$dir" | sed "s|packages/${app}-||;s|/bin||")
               for f in "$dir"/*; do

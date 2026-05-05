@@ -1,3 +1,3 @@
-module nego
+module nestgo
 
 go 1.26.2

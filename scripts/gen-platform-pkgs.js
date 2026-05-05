@@ -1,7 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 
-const apps = ['ttsgo', 'nego'];
+const apps = ['ttsgo', 'nestgo'];
 const platforms = [
   { os: 'darwin', arch: 'arm64', npmOs: 'darwin', npmArch: 'arm64' },
   { os: 'darwin', arch: 'x64',   npmOs: 'darwin', npmArch: 'x64' },

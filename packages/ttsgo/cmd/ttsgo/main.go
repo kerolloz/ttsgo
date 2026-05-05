@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/kerollosmagdy/ttsgo/pkg/engine"
+	"github.com/kerolloz/ttsgo/pkg/engine"
 )
 
 func main() {

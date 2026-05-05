@@ -1,0 +1,18 @@
+{
+  "name": "@nestgo/core-darwin-x64",
+  "version": "0.1.0",
+  "description": "nestgo binary for darwin x64",
+  "os": [
+    "darwin"
+  ],
+  "cpu": [
+    "x64"
+  ],
+  "license": "MIT",
+  "bin": {
+    "nestgo": "bin/nestgo"
+  },
+  "files": [
+    "bin/"
+  ]
+}

@@ -13,7 +13,7 @@ import (
 	shimcompiler "github.com/microsoft/typescript-go/shim/compiler"
 	shimcore "github.com/microsoft/typescript-go/shim/core"
 	shimtsoptions "github.com/microsoft/typescript-go/shim/tsoptions"
-	"github.com/kerollosmagdy/ttsgo/pkg/paths"
+	"github.com/kerolloz/ttsgo/pkg/paths"
 )
 
 // Options defines the parameters for a compilation run.
