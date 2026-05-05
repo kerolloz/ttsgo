@@ -229,21 +229,30 @@ jobs:
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
 
-      # Create GitHub Release with all binaries
+      # Rename binaries with platform suffixes for GitHub Release
+      # (GitHub Release assets must have unique filenames)
+      - name: Rename binaries for release
+        run: |
+          mkdir -p release
+          for app in ttsgo nego; do
+            for dir in packages/${app}-*/bin; do
+              PLATFORM=$(echo "$dir" | sed "s|packages/${app}-||;s|/bin||")
+              for f in "$dir"/*; do
+                BASENAME=$(basename "$f")
+                if [[ "$BASENAME" == *.exe ]]; then
+                  cp "$f" "release/${app}-${PLATFORM}.exe"
+                else
+                  cp "$f" "release/${app}-${PLATFORM}"
+                fi
+              done
+            done
+          done
+          echo "Release assets:"
+          ls -lh release/
+
+      # Create GitHub Release with uniquely-named binaries
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v3
         with:
           generate_release_notes: true
-          files: |
-            packages/ttsgo-darwin-arm64/bin/ttsgo
-            packages/ttsgo-darwin-x64/bin/ttsgo
-            packages/ttsgo-linux-arm64/bin/ttsgo
-            packages/ttsgo-linux-x64/bin/ttsgo
-            packages/ttsgo-win32-arm64/bin/ttsgo.exe
-            packages/ttsgo-win32-x64/bin/ttsgo.exe
-            packages/nego-darwin-arm64/bin/nego
-            packages/nego-darwin-x64/bin/nego
-            packages/nego-linux-arm64/bin/nego
-            packages/nego-linux-x64/bin/nego
-            packages/nego-win32-arm64/bin/nego.exe
-            packages/nego-win32-x64/bin/nego.exe
+          files: release/*

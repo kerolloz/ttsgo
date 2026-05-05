@@ -3,7 +3,9 @@ package watcher
 import (
 	"context"
 	"io/fs"
+	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -25,6 +27,12 @@ type Watcher struct {
 
 // New creates and starts a directory watcher on sourceRoot.
 func New(ctx context.Context, sourceRoot string, debounce time.Duration, onChange func()) (*Watcher, error) {
+	if v := os.Getenv("NEGO_DEBOUNCE_MS"); v != "" {
+		if ms, err := strconv.Atoi(v); err == nil && ms > 0 {
+			debounce = time.Duration(ms) * time.Millisecond
+		}
+	}
+
 	w, err := fsnotify.NewWatcher()
 	if err != nil {
 		return nil, err
@@ -54,6 +62,10 @@ func (wt *Watcher) addAll(root string) error {
 		}
 		if d.IsDir() {
 			if err := wt.w.Add(path); err != nil {
+				if isWatchLimitError(err) {
+					logger.Warn("File watcher limit reached. Consider increasing fs.inotify.max_user_watches (Linux) or ulimit -n (macOS)")
+					return filepath.SkipDir
+				}
 				logger.Warn("Failed to watch %q: %v", path, err)
 			}
 		}
@@ -121,4 +133,10 @@ func (wt *Watcher) Close() {
 func isTypeScriptFile(name string) bool {
 	ext := strings.ToLower(filepath.Ext(name))
 	return ext == ".ts" || ext == ".tsx"
+}
+
+func isWatchLimitError(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "no space left on device") ||
+		strings.Contains(msg, "too many open files")
 }

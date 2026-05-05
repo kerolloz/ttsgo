@@ -129,11 +129,6 @@ func (o *Orchestrator) WaitRunner() int {
 }
 
 func (o *Orchestrator) Build(ctx context.Context, isRebuild bool) error {
-	if isRebuild && o.runner != nil {
-		logger.Step("Stopping old process...")
-		o.runner.Kill()
-	}
-
 	if o.NestConfig.CompilerOptions.DeleteOutDir {
 		absOut := filepath.Join(o.Cwd, o.TsConfig.OutDir)
 		if !strings.HasPrefix(absOut+string(filepath.Separator), o.Cwd+string(filepath.Separator)) {
@@ -159,13 +154,19 @@ func (o *Orchestrator) Build(ctx context.Context, isRebuild bool) error {
 	}
 	if len(res.Diagnostics) > 0 {
 		for _, d := range res.Diagnostics {
-			logger.Error(d)
+			logger.Error("%s", d)
 		}
 		return fmt.Errorf("compilation failed with %d diagnostics", len(res.Diagnostics))
 	}
 
 	if err := o.Assets.Copy(); err != nil {
 		return fmt.Errorf("asset copy failed: %w", err)
+	}
+
+	// Kill old process after successful compilation to avoid downtime on build failures
+	if isRebuild && o.runner != nil {
+		logger.Step("Stopping old process...")
+		o.runner.Kill()
 	}
 
 	if o.runner != nil {

@@ -11,11 +11,11 @@ import (
 
 // Rewriter resolves tsconfig path aliases in emitted JS source text.
 type Rewriter struct {
-	cwd          string
-	absOutDir    string
-	sourceBase   string
-	matchers     []pathMatcher
-	nodeModCache sync.Map
+	cwd        string
+	absOutDir  string
+	sourceBase string
+	matchers   []pathMatcher
+	statCache  sync.Map // caches os.Stat results: path -> bool (isDir)
 }
 
 type pathMatcher struct {
@@ -103,6 +103,21 @@ func (r *Rewriter) RewriteSource(fileName, text string) string {
 	if len(all) == 0 {
 		return text
 	}
+
+	regions := skipRegions(text)
+	if len(regions) > 0 {
+		filtered := all[:0]
+		for _, m := range all {
+			if !isInSkipRegion(m.start, regions) {
+				filtered = append(filtered, m)
+			}
+		}
+		all = filtered
+		if len(all) == 0 {
+			return text
+		}
+	}
+
 	sort.Slice(all, func(i, j int) bool { return all[i].start < all[j].start })
 
 	var sb strings.Builder
@@ -216,13 +231,22 @@ func (r *Rewriter) resolveFileOrDir(specifier, fromFile string) (string, bool) {
 		absSourcePath = filepath.Join(filepath.Dir(fromFile), specifier)
 	}
 
+	// Check cached stat result
+	if isDir, ok := r.statCache.Load(absSourcePath); ok {
+		if isDir.(bool) {
+			return strings.TrimSuffix(specifier, "/") + "/index.js", true
+		}
+		return specifier + ".js", true
+	}
+
 	// Check if it's a directory
 	info, err := os.Stat(absSourcePath)
 	if err == nil && info.IsDir() {
+		r.statCache.Store(absSourcePath, true)
 		return strings.TrimSuffix(specifier, "/") + "/index.js", true
 	}
 
-	// Assume it's a file and add .js
+	r.statCache.Store(absSourcePath, false)
 	return specifier + ".js", true
 }
 

@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -131,10 +133,22 @@ func CompileWithRewrite(ctx context.Context, opts Options) (*Result, error) {
 		writeErr   error
 	)
 
-	// Bounded channel — 64 concurrent writers is enough to saturate SSD I/O
-	jobs := make(chan writeJob, 256)
+	// Bounded channel — adaptive worker count based on available CPUs
+	numWorkers := runtime.NumCPU() * 4
+	if numWorkers < 8 {
+		numWorkers = 8
+	}
+	if numWorkers > 128 {
+		numWorkers = 128
+	}
+	if v := os.Getenv("TTSGO_WORKERS"); v != "" {
+		if n, err := strconv.Atoi(v); err == nil && n > 0 {
+			numWorkers = n
+		}
+	}
+	bufSize := numWorkers * 4
+	jobs := make(chan writeJob, bufSize)
 
-	const numWorkers = 64
 	for i := 0; i < numWorkers; i++ {
 		wg.Add(1)
 		go func() {

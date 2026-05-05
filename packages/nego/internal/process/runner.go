@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+
+	"github.com/kerollosmagdy/nego/internal/logger"
 )
 
 // ProcessRunner defines the interface for managing the child process.
@@ -165,16 +167,29 @@ func (r *Runner) resolveOutputFile() string {
 		filepath.Join(r.opts.Cwd, r.opts.OutDir, r.opts.RootDir, r.opts.EntryFile+".js"),
 		filepath.Join(r.opts.Cwd, r.opts.OutDir, r.opts.EntryFile+".js"),
 	}
+
+	var found []string
 	for _, c := range candidates {
 		if seen[c] {
 			continue
 		}
 		seen[c] = true
 		if _, err := os.Stat(c); err == nil {
-			return c
+			found = append(found, c)
 		}
 	}
-	return ""
+
+	if len(found) > 1 {
+		logger.Warn("Multiple entry file candidates found, using: %s", found[0])
+		for _, f := range found[1:] {
+			logger.Warn("  Also found: %s", f)
+		}
+	}
+
+	if len(found) == 0 {
+		return ""
+	}
+	return found[0]
 }
 
 func quoteShellArg(arg string) string {

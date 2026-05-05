@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/kerollosmagdy/nego/internal/logger"
 )
 
 // TsConfig holds the compiler options we need from tsconfig.json.
@@ -44,6 +46,7 @@ func LoadTsConfig(cwd, tsConfigPath string) (*TsConfig, error) {
 
 func loadTsConfigAbs(cwd, absPath string, depth int) (*TsConfig, error) {
 	if depth > 10 {
+		logger.Warn("tsconfig extends chain exceeded depth limit (10). Parent configs beyond this depth are ignored: %s", absPath)
 		return &TsConfig{OutDir: "dist"}, nil
 	}
 

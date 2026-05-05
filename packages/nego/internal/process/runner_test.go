@@ -135,3 +135,19 @@ func TestWaitAfterKill(t *testing.T) {
 		t.Fatal("Wait hung after Kill")
 	}
 }
+
+func TestResolveOutputFileMultipleCandidates(t *testing.T) {
+	dir := t.TempDir()
+	// Create both dist/src/main.js and dist/main.js
+	os.MkdirAll(filepath.Join(dir, "dist", "src"), 0755)
+	os.WriteFile(filepath.Join(dir, "dist", "src", "main.js"), []byte(""), 0644)
+	os.WriteFile(filepath.Join(dir, "dist", "main.js"), []byte(""), 0644)
+
+	r := &Runner{opts: Options{Cwd: dir, OutDir: "dist", SourceRoot: "src", EntryFile: "main"}}
+	got := r.resolveOutputFile()
+	// Should return the first candidate (sourceRoot-based)
+	want := filepath.Join(dir, "dist", "src", "main.js")
+	if got != want {
+		t.Errorf("resolveOutputFile() = %q, want %q", got, want)
+	}
+}
