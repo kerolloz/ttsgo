@@ -30,5 +30,9 @@
     "@nestgo/core-linux-x64": "0.1.0",
     "@nestgo/core-win32-arm64": "0.1.0",
     "@nestgo/core-win32-x64": "0.1.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/kerolloz/ttsgo"
   }
 }
