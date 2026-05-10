@@ -1,90 +1,183 @@
 # ttsgo & nestgo
 
-This repository contains two revolutionary tools designed to supercharge your TypeScript and NestJS development workflows by leveraging the speed of native Go.
+**nestgo** is a drop-in replacement for `nest build` and `nest start`, powered by **ttsgo** — a TypeScript compiler built on top of TypeScript 7.0's native Go port.
 
-*   [**`ttsgo`**](#ttsgo): An ultra-fast native TypeScript compiler engine.
-*   [**`nestgo`**](#nestgo): A drop-in replacement for the NestJS CLI (`nest build` and `nest start`).
+No config changes required. Same `nest-cli.json`. Same `tsconfig.json`. Just faster.
 
 ---
 
 ## Benchmarks
 
-Both tools achieve phenomenal performance improvements by using native Go instead of V8 and Node.js.
+Benchmarks were run on dummy projects. Real-world speedups depend on project size, but typically land between **5x and 30x**.
 
-| Project Type | Tool | Compilation Time | Speedup |
-| :--- | :--- | :--- | :--- |
-| Standard TS | `tsc` | 0.643s | Baseline |
-| Standard TS | **`ttsgo`** | 0.130s | **~5x Faster** |
-| NestJS App | `nest build`| 1.856s | Baseline |
-| NestJS App | **`nestgo`** | 0.060s | **~30x Faster** |
-
-> *Note: Benchmarks performed on dummy projects. Real-world speedups may vary, but typically sit between 5x and 30x.*
+| Project      | Tool           | Time    | Speedup     |
+|--------------|----------------|---------|-------------|
+| TypeScript   | `tsc`          | 0.643s  | baseline    |
+| TypeScript   | `ttsgo`        | 0.130s  | **~5x**     |
+| NestJS app   | `nest build`   | 1.856s  | baseline    |
+| NestJS app   | `nestgo build` | 0.060s  | **~30x**    |
 
 ---
 
-## 🚀 `ttsgo` (TypeScript Compiler)
+## nestgo
 
-`ttsgo` uses TypeScript 7.0's native Go compiler (`github.com/microsoft/typescript-go`) but extends it with **Zero-I/O Path Alias Resolution**. 
+A CLI replacement for the NestJS build toolchain. Reads your existing `nest-cli.json` and compiles with `ttsgo` instead of `tsc`.
 
-Instead of waiting for the compiler to emit `dist` files and then running a secondary tool like `tsc-alias` to replace `@utils/*` with relative paths, `ttsgo` rewrites aliases *in-memory* as the file buffer is written to disk.
+### Installation
 
-### Features
-- Native performance (up to 10x faster than `tsc`)
-- Built-in `tsconfig.json` `paths` resolution. No `tsc-alias` needed!
-- Produces exact same diagnostics as standard `tsc`.
+Install as a dev dependency and update your npm scripts:
 
-### Usage
 ```bash
-npm install -g ttsgo
-
-# Compile your project using the tsconfig.json in the current directory
-ttsgo -p tsconfig.json
+npm install --save-dev nestgo
 ```
 
----
-
-## ⚡ `nestgo` (NestJS CLI Replacement)
-
-`nestgo` is a lightweight, ultra-fast CLI orchestrator tailored specifically for NestJS applications. It completely bypasses Node.js compilation and utilizes `ttsgo`'s engine as a direct library binding (`//go:linkname`).
-
-### Features
-- In-process TypeScript compilation (no child process overhead).
-- Understands `nest-cli.json` natively.
-- Handles NestJS Asset compilation (e.g. `*.graphql`, `*.html`).
-- Watch mode (`nestgo start --watch`) with lightning-fast rebuilds.
+```json
+// package.json
+{
+  "scripts": {
+    "build":     "nestgo build",
+    "start":     "nestgo start",
+    "start:dev": "nestgo start --watch"
+  }
+}
+```
 
 ### Usage
-```bash
-npm install -g nestgo
 
-# Build your NestJS app (replaces `nest build`)
+```bash
+nestgo build                  # replaces: nest build
+nestgo build --watch          # watch mode
+nestgo start                  # replaces: nest start
+nestgo start --watch          # hot-reload dev server
+nestgo start --debug          # attach Node.js inspector
+nestgo start -- --port 3001   # pass extra args to Node
+```
+
+All commands auto-detect `nest-cli.json` and `tsconfig.json` in the current directory. No flags required for standard project layouts.
+
+### Supported `nest-cli.json` fields
+
+| Field                             | Supported |
+|-----------------------------------|-----------|
+| `sourceRoot`                      | ✅        |
+| `entryFile`                       | ✅        |
+| `exec`                            | ✅        |
+| `compilerOptions.tsConfigPath`    | ✅        |
+| `compilerOptions.deleteOutDir`    | ✅        |
+| `compilerOptions.assets`          | ✅        |
+| `compilerOptions.watchAssets`     | ✅        |
+| `compilerOptions.builder: "swc"`  | ❌        |
+| `compilerOptions.builder: "webpack"` | ❌     |
+| plugins, generate, add, new       | ❌        |
+
+Only the `tsc` builder is supported. If your project uses `swc` or `webpack`, nestgo will exit with a clear error rather than silently producing wrong output.
+
+### Path aliases
+
+If your `tsconfig.json` defines `paths`, nestgo rewrites them in the emitted output automatically — no `tsc-alias` or post-processing step needed.
+
+```json
+// tsconfig.json
+{
+  "compilerOptions": {
+    "paths": {
+      "@modules/*": ["./src/modules/*"],
+      "@common/*":  ["./src/common/*"]
+    }
+  }
+}
+```
+
+This works for both `import ... from` and `require(...)` syntax, including `.d.ts` declaration files.
+
+### Environment variables
+
+| Variable            | Description                                          |
+|---------------------|------------------------------------------------------|
+| `NESTGO_DEBOUNCE_MS`| File watcher debounce in milliseconds (default: 500) |
+| `TTSGO_WORKERS`     | Number of I/O workers for parallel file emit         |
+
+---
+
+## ttsgo
+
+A standalone TypeScript compiler for non-NestJS projects. A faster drop-in for `tsc`.
+
+### Installation
+
+```bash
+npm install --save-dev ttsgo
+```
+
+### Usage
+
+```bash
+ttsgo -p tsconfig.json           # compile project
+ttsgo -p tsconfig.json --noEmit  # type-check only, no output
+ttsgo -p tsconfig.json --outDir dist
+```
+
+`ttsgo` reads your `tsconfig.json`, runs type-checking and emit using TypeScript 7.0's native Go compiler, and rewrites any `paths` aliases in the emitted files in one pass — no separate post-processing step.
+
+---
+
+## How it works
+
+```
 nestgo build
-
-# Build and start your NestJS app (replaces `nest start`)
-nestgo start
-
-# Watch mode
-nestgo start --watch
+     │
+     ├── reads nest-cli.json + tsconfig.json
+     │
+     └── calls ttsgo engine (in-process, no child process)
+              │
+              ├── TypeScript 7.0 Go compiler (microsoft/typescript-go)
+              │     type-check + emit
+              │
+              ├── concurrent I/O worker pool
+              │     parallel WriteFile across CPU cores
+              │
+              └── paths rewriter
+                    rewrites @aliases → relative paths
+                    in-memory, during emit
 ```
+
+The compiler runs in the same process as nestgo — there's no `exec.Command` spawned for compilation. The only child process is the Node.js app itself (`nestgo start`).
+
+Path alias rewriting happens as each file buffer is handed off to disk, so there's no second pass over the output directory.
 
 ---
 
-## Architecture
+## Local development
 
-This is a Go workspace Monorepo containing the following structures:
+Requires [just](https://github.com/casey/just), [Go 1.26+](https://github.com/kerolloz/go-installer) and Node.js 20+.
 
-1. **`packages/ttsgo`**: Exposes both the CLI binary and the `pkg/engine` module. Uses `//go:linkname` shims to pierce the `internal/` barrier of `typescript-go`.
-2. **`packages/nestgo`**: Consumes `ttsgo/pkg/engine` to orchestrate builds without executing `exec.Command`.
-
-### Development
-
-To build the binaries locally:
 ```bash
-# Build ttsgo
+git clone https://github.com/kerolloz/ttsgo.git
+cd ttsgo
+just build          # builds both binaries to ./bin/
+```
+
+Or manually:
+
+```bash
+# build ttsgo
 cd packages/ttsgo
 go build -o ../../bin/ttsgo ./cmd/ttsgo
 
-# Build nestgo
+# build nestgo
 cd packages/nestgo
-go build -o ../../bin/nestgo ./main.go
+go build -o ../../bin/nestgo .
 ```
+
+Run against the included test project:
+
+```bash
+cd tests/dummy-ts
+../../bin/ttsgo -p tsconfig.json
+```
+
+---
+
+## License
+
+MIT
